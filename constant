@@ -1,0 +1,10 @@
+WELCOME_MSG = (
+    """Вас приветствует бот GEOSHOP! \nУ меня можно заказать geology-товары 😋"""
+)
+UNKNOWN_CMD_MSG = """Неизвестная команда 😒"""
+AUTHOR_MSG = """Автор бота: SSG COMMUNITY  👨‍💻"""
+USER_MESSAGES = {
+    "welcome": """Вас приветствует бот GEOSHOP! \nУ меня можно заказать geology-товары😋""",
+    "unknown": """Неизвестная команда 😒""",
+    "author": """Автор бота: SSG COMMUNITY 👨‍💻""",
+}
