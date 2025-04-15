@@ -1,38 +1,74 @@
-from main import bot, dp
-from keyboards import keyboard
-from aiogram import types
-from aiogram.dispatcher.filters import Command
+from aiogram import F, Router
+from aiogram.types import (
+    Message,
+    LabeledPrice,
+    ContentType,
+    PreCheckoutQuery,
+    ShippingQuery,
+)
 
-@dp.message_handler(Command('start'))
-async def start(message: types.Message):
-    await bot.send_message(message.chat.id, 'Тестируем WebApp!',
-                           reply_markup=keyboard)
+from src.config import conf
+from src.db.dependencies import db
+from src.payments import constants as constants
 
-PRICE = {
-    '1': [types.LabeledPrice(label='Item1', amount=100000)],
-    '2': [types.LabeledPrice(label='Item2', amount=200000)],
-    '3': [types.LabeledPrice(label='Item3', amount=300000)],
-    '4': [types.LabeledPrice(label='Item4', amount=400000)],
-    '5': [types.LabeledPrice(label='Item5', amount=500000)],
-    '6': [types.LabeledPrice(label='Item6', amount=600000)]
-}
+router = Router()
 
-@dp.message_handler(content_types='web_app_data')
-async def buy_process(web_app_message):
-    await bot.send_invoice(web_app_message.chat.id,
-                           title='Laptop',
-                           description='Description',
-                           provider_token='1744374395:TEST:577bcbcc61a58ae0ad9a',
-                           currency='rub',
-                           need_email=True,
-                           prices=PRICE[f'{web_app_message.web_app_data.data}'],
-                           start_parameter='example',
-                           payload='some_invoice')
 
-@dp.pre_checkout_query_handler(lambda query: True)
-async def pre_checkout_process(pre_checkout: types.PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(pre_checkout.id, ok=True)
+@router.message(F.content_type == ContentType.WEB_APP_DATA)
+async def buy_process(msg: Message) -> None:
+    prod_id = msg.web_app_data.data
+    if prod_id.isnumeric():
+        prod = await db.get_product(int(prod_id))
+        if prod:
+            price = [LabeledPrice(label=prod["name"], amount=prod["amount"] * 100)]
+        else:
+            await msg.answer(constants.WRONG_PRODUCT_INFO_MSG)
+            return
+    else:
+        await msg.answer(constants.WRONG_PRODUCT_INFO_MSG)
+        return
 
-@dp.message_handler(content_types=types.ContentType.SUCCESSFUL_PAYMENT)
-async def successful_payment(message: types.Message):
-    await bot.send_message(message.chat.id, 'Платеж прошел успешно!')
+    await msg.answer_invoice(
+        title="Оплата заказа",
+        description=price[0].label,
+        provider_token=conf.pay_token,
+        currency="rub",
+        need_email=True,
+        need_phone_number=True,
+        prices=price,
+        start_parameter="example",
+        payload="some_invoice",
+        is_flexible=True,
+    )
+
+
+def check_validity(query: ShippingQuery) -> bool:
+    return (
+            query.shipping_address.country_code == "RU"
+            and query.shipping_address.city.lower() in constants.VALID_CITIES
+    )
+
+
+@router.shipping_query(lambda query: True)
+async def shipping_process(query: ShippingQuery) -> None:
+    if not check_validity(query):
+        await query.answer(
+            ok=False,
+            error_message=constants.NO_DELIVERY_MSG.format(query.shipping_address.city),
+        )
+        return
+
+    await query.answer(
+        ok=True,
+        shipping_options=constants.SHIPPING_OPTIONS,
+    )
+
+
+@router.pre_checkout_query(lambda query: True)
+async def pre_checkout_process(pre_checkout: PreCheckoutQuery) -> None:
+    await pre_checkout.answer(ok=True)
+
+
+@router.message(F.content_type == ContentType.SUCCESSFUL_PAYMENT)
+async def successful_payment(msg: Message) -> None:
+    await msg.answer(constants.ORDER_ACCEPTED_MSG)
